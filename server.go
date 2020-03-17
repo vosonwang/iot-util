@@ -154,3 +154,12 @@ func (c *Conn) Close() {
 	close(c.CloseNotifier)
 	delete(c.server.ActiveConn, c)
 }
+
+func (c *Conn) SetSN(sn string) {
+	for c2 := range c.server.ActiveConn {
+		if c2.SN == sn {
+			delete(c.server.ActiveConn, c2)
+		}
+	}
+	c.SN = sn
+}
