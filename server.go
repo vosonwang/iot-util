@@ -22,7 +22,7 @@ type (
 
 	// A conn represents the server side of an tcp connection.
 	Conn struct {
-		SN string
+		sn string
 		// server is the server on which the connection arrived.
 		// Immutable; never nil.
 		server *Server
@@ -40,6 +40,19 @@ type (
 		ResponseChan chan []byte
 	}
 )
+
+func (c *Conn) Sn() string {
+	return c.sn
+}
+
+func (c *Conn) SetSn(sn string) {
+	for c2 := range c.server.ActiveConn {
+		if c2.sn == sn {
+			delete(c.server.ActiveConn, c2)
+		}
+	}
+	c.sn = sn
+}
 
 func NewServer() *Server {
 	return &Server{
@@ -83,14 +96,13 @@ func (srv *Server) StartServer(address string) error {
 
 // Create new connection from rwc.
 func (srv *Server) newConn(rwc net.Conn) *Conn {
-	c := &Conn{
+	return &Conn{
 		server:        srv,
 		rwc:           rwc,
 		RequestChan:   make(chan []byte),
 		ResponseChan:  make(chan []byte),
 		CloseNotifier: make(chan bool),
 	}
-	return c
 }
 
 func (c *Conn) serve() {
@@ -153,13 +165,4 @@ func (c *Conn) write(buf []byte) error {
 func (c *Conn) Close() {
 	close(c.CloseNotifier)
 	delete(c.server.ActiveConn, c)
-}
-
-func (c *Conn) SetSN(sn string) {
-	for c2 := range c.server.ActiveConn {
-		if c2.SN == sn {
-			delete(c.server.ActiveConn, c2)
-		}
-	}
-	c.SN = sn
 }
