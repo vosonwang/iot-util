@@ -1,4 +1,4 @@
-package iot
+package iot_util
 
 import (
 	"fmt"
