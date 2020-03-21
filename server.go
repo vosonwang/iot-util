@@ -120,7 +120,7 @@ func (c *Conn) ID() string {
 	return c.id
 }
 
-func (c *Conn) Setid(id string) {
+func (c *Conn) SetID(id string) {
 	for prev := range c.server.ActiveConn {
 		if prev.id == id {
 			prev.Close()
