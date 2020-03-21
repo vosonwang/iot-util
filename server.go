@@ -1,8 +1,10 @@
 package iot_util
 
 import (
+	"errors"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
@@ -13,11 +15,13 @@ const (
 
 type (
 	Server struct {
-		Addr       string
-		MaxBytes   int
-		Timeout    time.Duration
-		Handler    func(c *Conn)
-		ActiveConn map[*Conn]bool
+		Addr           string
+		MaxBytes       int
+		Timeout        time.Duration
+		HandleConn     func(c *Conn, out []byte) (in []byte, err error)
+		AfterConnClose func(sn string)
+		ActiveConn     map[*Conn]bool
+		OnStart        func()
 	}
 
 	// A conn represents the server side of an tcp connection.
@@ -35,24 +39,17 @@ type (
 
 		CloseNotifier chan bool
 
-		RequestChan chan []byte
+		inShutdown int32 // accessed atomically (non-zero means we're in Shutdown)
 
-		ResponseChan chan []byte
+		requestChan chan []byte
+
+		responseChan chan []byte
+
+		metric []string
+
+		issueData chan []byte
 	}
 )
-
-func (c *Conn) Sn() string {
-	return c.sn
-}
-
-func (c *Conn) SetSn(sn string) {
-	for c2 := range c.server.ActiveConn {
-		if c2.sn == sn {
-			delete(c.server.ActiveConn, c2)
-		}
-	}
-	c.sn = sn
-}
 
 func NewServer() *Server {
 	return &Server{
@@ -68,6 +65,7 @@ func (srv *Server) StartServer(address string) error {
 		return err
 	}
 	defer l.Close()
+	srv.OnStart()
 	var tempDelay time.Duration // how long to sleep on accept failure
 	for {
 		rw, err := l.Accept()
@@ -99,9 +97,56 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 	return &Conn{
 		server:        srv,
 		rwc:           rwc,
-		RequestChan:   make(chan []byte),
-		ResponseChan:  make(chan []byte),
+		requestChan:   make(chan []byte),
+		responseChan:  make(chan []byte),
 		CloseNotifier: make(chan bool),
+		issueData:     make(chan []byte),
+	}
+}
+
+func (srv *Server) Shutdown() {
+	for c := range srv.ActiveConn {
+		c.Close()
+	}
+}
+
+func (c *Conn) Sn() string {
+	return c.sn
+}
+
+func (c *Conn) SetSn(sn string) {
+	for prev := range c.server.ActiveConn {
+		if prev.sn == sn {
+			prev.Close()
+			break
+		}
+	}
+	c.sn = sn
+}
+
+func (c *Conn) SetMetric(metrics []string) {
+	c.metric = metrics
+}
+
+func (c *Conn) GetMetric() []string {
+	return c.metric
+}
+
+func (c *Conn) SetData(data []byte) error {
+	select {
+	case c.issueData <- data:
+		return nil
+	case <-time.NewTicker(5 * time.Second).C:
+		return errors.New("响应超时")
+	}
+}
+
+func (c *Conn) GetData() ([]byte, error) {
+	select {
+	case buf := <-c.issueData:
+		return buf, nil
+	case <-time.NewTicker(5 * time.Second).C:
+		return nil, errors.New("响应超时")
 	}
 }
 
@@ -115,10 +160,11 @@ func (c *Conn) serve() {
 			default:
 				buf, err := c.read()
 				if err != nil {
+					log.Println(err)
 					c.Close()
 					return
 				}
-				c.ResponseChan <- buf
+				c.responseChan <- buf
 			}
 		}
 	}()
@@ -129,8 +175,9 @@ func (c *Conn) serve() {
 			select {
 			case <-c.CloseNotifier:
 				return
-			case buf := <-c.RequestChan:
+			case buf := <-c.requestChan:
 				if err := c.write(buf); err != nil {
+					log.Println(err)
 					c.Close()
 					return
 				}
@@ -140,9 +187,34 @@ func (c *Conn) serve() {
 		}
 	}()
 
-	go c.server.Handler(c)
+	// handle response
+	go func() {
+		for {
+			select {
+			case <-c.CloseNotifier:
+				return
+			case buf := <-c.responseChan:
+				if resp, err := c.server.HandleConn(c, buf); err != nil {
+					log.Println(err)
+				} else {
+					if resp != nil {
+						c.requestChan <- resp
+					}
+				}
+			}
+		}
+	}()
 
 	<-c.CloseNotifier
+}
+
+func (c *Conn) GetRequest(buf []byte) error {
+	select {
+	case c.requestChan <- buf:
+		return nil
+	case <-time.NewTicker(5 * time.Second).C:
+		return errors.New("请求超时")
+	}
 }
 
 func (c *Conn) read() ([]byte, error) {
@@ -163,6 +235,17 @@ func (c *Conn) write(buf []byte) error {
 }
 
 func (c *Conn) Close() {
-	close(c.CloseNotifier)
-	delete(c.server.ActiveConn, c)
+	if !c.shuttingDown() {
+		atomic.StoreInt32(&c.inShutdown, 1)
+		delete(c.server.ActiveConn, c)
+		close(c.CloseNotifier)
+		c.rwc.Close()
+		c.server.AfterConnClose(c.sn)
+	}
+}
+
+func (c *Conn) shuttingDown() bool {
+	// TODO: replace inShutdown with the existing atomicBool type;
+	// see https://github.com/golang/go/issues/20239#issuecomment-381434582
+	return atomic.LoadInt32(&c.inShutdown) != 0
 }
