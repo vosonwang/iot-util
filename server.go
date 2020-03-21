@@ -52,6 +52,7 @@ type (
 		// 用于发送和接收通过链接读写客户端的数据
 		bridgeChan chan []byte
 
+		// 用于存放一些用户自定义内容
 		Ctx context.Context
 	}
 )
@@ -106,7 +107,6 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 		responseChan:  make(chan []byte),
 		CloseNotifier: make(chan bool),
 		bridgeChan:    make(chan []byte),
-		Ctx:           context.Background(),
 	}
 }
 
