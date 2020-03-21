@@ -1,6 +1,7 @@
 package iot_util
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net"
@@ -19,14 +20,15 @@ type (
 		MaxBytes       int
 		Timeout        time.Duration
 		HandleConn     func(c *Conn, out []byte) (in []byte, err error)
-		AfterConnClose func(sn string)
+		AfterConnClose func(id string)
 		ActiveConn     map[*Conn]bool
 		OnStart        func()
 	}
 
 	// A conn represents the server side of an tcp connection.
 	Conn struct {
-		sn string
+		// 用于标示连接的唯一编号
+		id string
 		// server is the server on which the connection arrived.
 		// Immutable; never nil.
 		server *Server
@@ -47,7 +49,10 @@ type (
 
 		metric []string
 
-		issueData chan []byte
+		// 用于发送和接收通过链接读写客户端的数据
+		bridgeChan chan []byte
+
+		Ctx context.Context
 	}
 )
 
@@ -100,7 +105,8 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 		requestChan:   make(chan []byte),
 		responseChan:  make(chan []byte),
 		CloseNotifier: make(chan bool),
-		issueData:     make(chan []byte),
+		bridgeChan:    make(chan []byte),
+		Ctx:           context.Background(),
 	}
 }
 
@@ -110,40 +116,32 @@ func (srv *Server) Shutdown() {
 	}
 }
 
-func (c *Conn) Sn() string {
-	return c.sn
+func (c *Conn) ID() string {
+	return c.id
 }
 
-func (c *Conn) SetSn(sn string) {
+func (c *Conn) Setid(id string) {
 	for prev := range c.server.ActiveConn {
-		if prev.sn == sn {
+		if prev.id == id {
 			prev.Close()
 			break
 		}
 	}
-	c.sn = sn
+	c.id = id
 }
 
-func (c *Conn) SetMetric(metrics []string) {
-	c.metric = metrics
-}
-
-func (c *Conn) GetMetric() []string {
-	return c.metric
-}
-
-func (c *Conn) SetData(data []byte) error {
+func (c *Conn) Send(data []byte) error {
 	select {
-	case c.issueData <- data:
+	case c.bridgeChan <- data:
 		return nil
 	case <-time.NewTicker(5 * time.Second).C:
 		return errors.New("响应超时")
 	}
 }
 
-func (c *Conn) GetData() ([]byte, error) {
+func (c *Conn) Receive() ([]byte, error) {
 	select {
-	case buf := <-c.issueData:
+	case buf := <-c.bridgeChan:
 		return buf, nil
 	case <-time.NewTicker(5 * time.Second).C:
 		return nil, errors.New("响应超时")
@@ -240,7 +238,7 @@ func (c *Conn) Close() {
 		delete(c.server.ActiveConn, c)
 		close(c.CloseNotifier)
 		c.rwc.Close()
-		c.server.AfterConnClose(c.sn)
+		c.server.AfterConnClose(c.id)
 	}
 }
 
