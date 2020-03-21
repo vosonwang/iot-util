@@ -61,7 +61,7 @@ func NewServer() *Server {
 func (srv *Server) StartServer(address string) error {
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Printf("Failed to Listen: %v\n", err)
+		log.Printf("iot_util: Failed to Listen: %v\n", err)
 		return err
 	}
 	defer l.Close()
@@ -79,7 +79,7 @@ func (srv *Server) StartServer(address string) error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				log.Printf("http: Accept error: %v; retrying in %v", err, tempDelay)
+				log.Printf("iot_util: listen accept error: %v; retrying in %v\n", err, tempDelay)
 				time.Sleep(tempDelay)
 				continue
 			}
@@ -160,7 +160,7 @@ func (c *Conn) serve() {
 			default:
 				buf, err := c.read()
 				if err != nil {
-					log.Println(err)
+					log.Printf(`iot_util: read from connection error %v\n`, err)
 					c.Close()
 					return
 				}
@@ -177,7 +177,7 @@ func (c *Conn) serve() {
 				return
 			case buf := <-c.requestChan:
 				if err := c.write(buf); err != nil {
-					log.Println(err)
+					log.Printf(`iot_util: write to connection error %v\n`, err)
 					c.Close()
 					return
 				}
@@ -195,7 +195,7 @@ func (c *Conn) serve() {
 				return
 			case buf := <-c.responseChan:
 				if resp, err := c.server.HandleConn(c, buf); err != nil {
-					log.Println(err)
+					log.Printf(`iot_util:handle response error %v\n`, err)
 				} else {
 					if resp != nil {
 						c.requestChan <- resp
