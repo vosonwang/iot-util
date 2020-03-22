@@ -1,10 +1,11 @@
 package iot_util
 
 import (
-	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -16,10 +17,21 @@ const (
 
 type (
 	Server struct {
-		Addr           string
-		MaxBytes       int
-		Timeout        time.Duration
-		HandleConn     func(c *Conn, out []byte) (in []byte, err error)
+		// Addr optionally specifies the TCP address for the server to listen on,
+		// in the form "host:port". If empty, ":http" (port 80) is used.
+		// The service names are defined in RFC 6335 and assigned by IANA.
+		// See net.Dial for details of the address format.
+		Addr string
+
+		// 一次性读取字节流的最大长度，默认500个字节
+		MaxBytes int
+
+		// 读写超时设置，默认3分钟
+		Timeout time.Duration
+
+		// 处理从连接读取出的数据
+		Handler func(c *Conn, out []byte)
+
 		AfterConnClose func(id string)
 		ActiveConn     map[*Conn]bool
 		OnStart        func()
@@ -43,17 +55,8 @@ type (
 
 		inShutdown int32 // accessed atomically (non-zero means we're in Shutdown)
 
-		requestChan chan []byte
-
-		responseChan chan []byte
-
-		metric []string
-
 		// 用于发送和接收通过链接读写客户端的数据
 		bridgeChan chan []byte
-
-		// 用于存放一些用户自定义内容
-		Ctx context.Context
 	}
 )
 
@@ -74,7 +77,7 @@ func (srv *Server) StartServer(address string) error {
 	srv.OnStart()
 	var tempDelay time.Duration // how long to sleep on accept failure
 	for {
-		rw, err := l.Accept()
+		rwc, err := l.Accept()
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Temporary() {
 				if tempDelay == 0 {
@@ -92,7 +95,7 @@ func (srv *Server) StartServer(address string) error {
 			return err
 		}
 		tempDelay = 0
-		c := srv.newConn(rw)
+		c := srv.newConn(rwc)
 		srv.ActiveConn[c] = true
 		go c.serve()
 	}
@@ -103,8 +106,6 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 	return &Conn{
 		server:        srv,
 		rwc:           rwc,
-		requestChan:   make(chan []byte),
-		responseChan:  make(chan []byte),
 		CloseNotifier: make(chan bool),
 		bridgeChan:    make(chan []byte),
 	}
@@ -113,6 +114,23 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 func (srv *Server) Shutdown() {
 	for c := range srv.ActiveConn {
 		c.Close()
+	}
+}
+
+func (c *Conn) serve() {
+	for {
+		select {
+		case <-c.CloseNotifier:
+			return
+		default:
+			buf, err := c.read()
+			if err != nil {
+				log.Printf(`iot_util: read from connection error %v\n`, err)
+				c.Close()
+				return
+			}
+			go c.server.Handler(c, buf)
+		}
 	}
 }
 
@@ -132,6 +150,8 @@ func (c *Conn) SetID(id string) {
 
 func (c *Conn) Send(data []byte) error {
 	select {
+	case <-c.CloseNotifier:
+		return errors.New("设备离线")
 	case c.bridgeChan <- data:
 		return nil
 	case <-time.NewTicker(5 * time.Second).C:
@@ -148,73 +168,6 @@ func (c *Conn) Receive() ([]byte, error) {
 	}
 }
 
-func (c *Conn) serve() {
-	// read
-	go func() {
-		for {
-			select {
-			case <-c.CloseNotifier:
-				return
-			default:
-				buf, err := c.read()
-				if err != nil {
-					log.Printf(`iot_util: read from connection error %v\n`, err)
-					c.Close()
-					return
-				}
-				c.responseChan <- buf
-			}
-		}
-	}()
-
-	// write
-	go func() {
-		for {
-			select {
-			case <-c.CloseNotifier:
-				return
-			case buf := <-c.requestChan:
-				if err := c.write(buf); err != nil {
-					log.Printf(`iot_util: write to connection error %v\n`, err)
-					c.Close()
-					return
-				}
-				// 防止粘包
-				time.Sleep(1 * time.Second)
-			}
-		}
-	}()
-
-	// handle response
-	go func() {
-		for {
-			select {
-			case <-c.CloseNotifier:
-				return
-			case buf := <-c.responseChan:
-				if resp, err := c.server.HandleConn(c, buf); err != nil {
-					log.Printf(`iot_util:handle response error %v\n`, err)
-				} else {
-					if resp != nil {
-						c.requestChan <- resp
-					}
-				}
-			}
-		}
-	}()
-
-	<-c.CloseNotifier
-}
-
-func (c *Conn) GetRequest(buf []byte) error {
-	select {
-	case c.requestChan <- buf:
-		return nil
-	case <-time.NewTicker(5 * time.Second).C:
-		return errors.New("请求超时")
-	}
-}
-
 func (c *Conn) read() ([]byte, error) {
 	buf := make([]byte, c.server.MaxBytes)
 	c.rwc.SetReadDeadline(time.Now().Add(c.server.Timeout))
@@ -226,10 +179,9 @@ func (c *Conn) read() ([]byte, error) {
 	return buf, nil
 }
 
-func (c *Conn) write(buf []byte) error {
+func (c *Conn) Write(buf []byte) (n int, err error) {
 	c.rwc.SetWriteDeadline(time.Now().Add(c.server.Timeout))
-	_, err := c.rwc.Write(buf)
-	return err
+	return c.rwc.Write(buf)
 }
 
 func (c *Conn) Close() {
@@ -246,4 +198,47 @@ func (c *Conn) shuttingDown() bool {
 	// TODO: replace inShutdown with the existing atomicBool type;
 	// see https://github.com/golang/go/issues/20239#issuecomment-381434582
 	return atomic.LoadInt32(&c.inShutdown) != 0
+}
+
+/*
+将物联网设备中常见的形如20, 3, 12, 17, 19, 00的字节流，转换为形如2020-03-12 17:19:00这样的格式
+*/
+func BytesDecodeTime(packet []byte) string {
+	// 边界检查
+	_ = packet[5]
+	var b strings.Builder
+	year := packet[0]
+	month := packet[1]
+	day := packet[2]
+	hour := packet[3]
+	minute := packet[4]
+	second := packet[5]
+	b.WriteString(time.Now().Format("2006")[0:2])
+	b.WriteString(fmt.Sprintf(`%v-`, year))
+	if month >= 10 {
+		b.WriteString(fmt.Sprintf(`%v-`, month))
+	} else {
+		b.WriteString(fmt.Sprintf(`0%v-`, month))
+	}
+	if day >= 10 {
+		b.WriteString(fmt.Sprintf(`%v `, day))
+	} else {
+		b.WriteString(fmt.Sprintf(`0%v `, day))
+	}
+	if hour >= 10 {
+		b.WriteString(fmt.Sprintf(`%v:`, hour))
+	} else {
+		b.WriteString(fmt.Sprintf(`0%v:`, hour))
+	}
+	if minute >= 10 {
+		b.WriteString(fmt.Sprintf(`%v:`, minute))
+	} else {
+		b.WriteString(fmt.Sprintf(`0%v:`, minute))
+	}
+	if second >= 10 {
+		b.WriteString(fmt.Sprintf(`%v`, second))
+	} else {
+		b.WriteString(fmt.Sprintf(`0%v`, second))
+	}
+	return b.String()
 }

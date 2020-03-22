@@ -10,9 +10,8 @@ import (
 
 func TestServer_Serve(t *testing.T) {
 	s := NewServer()
-	s.HandleConn = func(c *Conn, out []byte) (in []byte, err error) {
+	s.Handler = func(c *Conn, out []byte) {
 		// handle response
-		return nil, nil
 	}
 	s.AfterConnClose = func(sn string) {
 		// do something
