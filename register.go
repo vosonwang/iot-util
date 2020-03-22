@@ -14,11 +14,11 @@ type (
 
 	Registers []Register
 
-	decoder interface {
+	Decoder interface {
 		Decode(data []byte, m map[string]interface{})
 	}
 
-	encoder interface {
+	Encoder interface {
 		Encode(value string) ([]byte, error)
 	}
 )
@@ -30,7 +30,7 @@ func (rs Registers) Encode(value string) ([]byte, error) {
 	}
 	buf := make([]byte, rs.GetNum()*2)
 	for index, r := range rs {
-		if w, ok := r.(encoder); !ok {
+		if w, ok := r.(Encoder); !ok {
 			return nil, errors.New("请求中存在不支持写入的指标")
 		} else {
 			b, err := w.Encode(vals[index])
@@ -49,7 +49,7 @@ func (rs Registers) Encode(value string) ([]byte, error) {
 func (rs Registers) Decode(data []byte) (map[string]interface{}, error) {
 	m := make(map[string]interface{})
 	for _, r := range rs {
-		if ro, ok := r.(decoder); !ok {
+		if ro, ok := r.(Decoder); !ok {
 			return nil, errors.New("请求中存在不支持读取的指标")
 		} else {
 			start := (r.GetStart() - rs.GetStart()) * 2
