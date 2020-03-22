@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -53,8 +54,11 @@ type (
 
 		inShutdown int32 // accessed atomically (non-zero means we're in Shutdown)
 
-		// 用于发送和接收通过链接读写客户端的数据
+		// 用于和外界交换数据
 		bridgeChan chan []byte
+
+		// 资源读写锁
+		Mu sync.Mutex
 	}
 )
 
