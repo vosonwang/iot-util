@@ -46,7 +46,7 @@ func (rs Registers) Encode(value string) ([]byte, error) {
 	return buf, nil
 }
 
-func (rs Registers) decode(data []byte) (map[string]interface{}, error) {
+func (rs Registers) Decode(data []byte) (map[string]interface{}, error) {
 	m := make(map[string]interface{})
 	for _, r := range rs {
 		if ro, ok := r.(decoder); !ok {
