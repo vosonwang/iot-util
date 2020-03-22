@@ -46,18 +46,17 @@ func (rs Registers) Encode(value string) ([]byte, error) {
 	return buf, nil
 }
 
-func (rs Registers) Decode(data []byte) (map[string]interface{}, error) {
-	m := make(map[string]interface{})
+func (rs Registers) Decode(data []byte, m map[string]interface{}) error {
 	for _, r := range rs {
 		if ro, ok := r.(Decoder); !ok {
-			return nil, errors.New("请求中存在不支持读取的指标")
+			return errors.New("请求中存在不支持读取的指标")
 		} else {
 			start := (r.GetStart() - rs.GetStart()) * 2
 			end := start + r.GetNum()*2
 			ro.Decode(data[start:end], m)
 		}
 	}
-	return m, nil
+	return nil
 }
 
 func (rs Registers) GetStart() uint16 {
