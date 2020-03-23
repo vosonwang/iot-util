@@ -163,6 +163,8 @@ func (c *Conn) Send(data []byte) error {
 
 func (c *Conn) Receive() ([]byte, error) {
 	select {
+	case <-c.CloseNotifier:
+		return nil, errors.New("设备离线")
 	case buf := <-c.bridgeChan:
 		return buf, nil
 	case <-time.NewTicker(5 * time.Second).C:
@@ -187,7 +189,7 @@ func (c *Conn) Write(buf []byte) (n int, err error) {
 }
 
 func (c *Conn) Close() {
-	if !c.shuttingDown() {
+	if !c.ShuttingDown() {
 		atomic.StoreInt32(&c.inShutdown, 1)
 		delete(c.server.ActiveConn, c)
 		close(c.CloseNotifier)
@@ -196,7 +198,7 @@ func (c *Conn) Close() {
 	}
 }
 
-func (c *Conn) shuttingDown() bool {
+func (c *Conn) ShuttingDown() bool {
 	// TODO: replace inShutdown with the existing atomicBool type;
 	// see https://github.com/golang/go/issues/20239#issuecomment-381434582
 	return atomic.LoadInt32(&c.inShutdown) != 0
