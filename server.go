@@ -72,7 +72,7 @@ func NewServer() *Server {
 func (srv *Server) StartServer(address string) error {
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Printf("iot_util: Failed to Listen: %v\n", err)
+		log.Printf("iot_util: Failed to Listen: %v", err)
 		return err
 	}
 	defer l.Close()
@@ -90,7 +90,7 @@ func (srv *Server) StartServer(address string) error {
 				if max := 1 * time.Second; tempDelay > max {
 					tempDelay = max
 				}
-				log.Printf("iot_util: listen accept error: %v; retrying in %v\n", err, tempDelay)
+				log.Printf("iot_util: listen accept error: %v; retrying in %v", err, tempDelay)
 				time.Sleep(tempDelay)
 				continue
 			}
@@ -127,7 +127,7 @@ func (c *Conn) serve() {
 		default:
 			buf, err := c.read()
 			if err != nil {
-				log.Printf(`iot_util: read from connection error %v\n`, err)
+				log.Printf(`iot_util: read from connection error %v`, err)
 				c.Close()
 				return
 			}
