@@ -15,6 +15,7 @@ type (
 	Registers []Register
 
 	Decoder interface {
+		// TODO  decode也可能产生error
 		Decode(data []byte, m map[string]interface{})
 	}
 
@@ -30,6 +31,10 @@ func (rs Registers) Encode(value string) ([]byte, error) {
 	}
 	buf := make([]byte, rs.GetNum()*2)
 	for index, r := range rs {
+		v := vals[index]
+		if v == "" {
+			return nil, errors.New("写入值不能为空字符串")
+		}
 		if w, ok := r.(Encoder); !ok {
 			return nil, errors.New("请求中存在不支持写入的指标")
 		} else {
