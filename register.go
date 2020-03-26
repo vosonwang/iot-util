@@ -106,6 +106,7 @@ func (rs Registers) getLastRegister() (last Register) {
 		s := r.GetStart()
 		if max < s {
 			last = r
+			max = r.GetStart()
 		}
 	}
 	return
