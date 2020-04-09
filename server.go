@@ -209,6 +209,8 @@ func (c *Conn) read() ([]byte, error) {
 func (c *Conn) Write(buf []byte) (n int, err error) {
 	c.Lock()
 	defer c.Unlock()
+	// 防止粘包
+	defer time.Sleep(1 * time.Second)
 	c.rwc.SetWriteDeadline(time.Now().Add(c.server.Timeout))
 	return c.rwc.Write(buf)
 }
