@@ -58,7 +58,7 @@ type (
 		bridgeChan chan []byte
 
 		// 资源读写锁
-		Mu sync.Mutex
+		sync.Mutex
 	}
 )
 
