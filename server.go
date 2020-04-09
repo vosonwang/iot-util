@@ -126,6 +126,7 @@ func (srv *Server) FindConn(id string) *Conn {
 		c := key.(*Conn)
 		if c.id == id {
 			c1 = c
+			return false
 		}
 		return true
 	})
