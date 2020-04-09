@@ -59,9 +59,6 @@ type (
 
 		// 资源读写锁
 		sync.Mutex
-
-		// 只执行一次
-		sync.Once
 	}
 )
 
