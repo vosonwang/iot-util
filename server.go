@@ -203,3 +203,8 @@ func (c *Conn) ShuttingDown() bool {
 	// see https://github.com/golang/go/issues/20239#issuecomment-381434582
 	return atomic.LoadInt32(&c.inShutdown) != 0
 }
+
+// 获取客户端地址
+func (c *Conn) GetRemoteAddr() string {
+	return c.rwc.RemoteAddr().String()
+}
