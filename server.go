@@ -205,6 +205,6 @@ func (c *Conn) ShuttingDown() bool {
 }
 
 // 获取客户端地址
-func (c *Conn) GetRemoteAddr() string {
+func (c *Conn) RemoteAddr() string {
 	return c.rwc.RemoteAddr().String()
 }
