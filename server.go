@@ -32,7 +32,7 @@ type (
 		Handler func(c *Conn, out []byte)
 
 		AfterConnClose func(id string)
-		ActiveConn     sync.Map
+		activeConn     sync.Map
 		OnStart        func()
 	}
 
@@ -98,7 +98,7 @@ func (srv *Server) StartServer(address string) error {
 		}
 		tempDelay = 0
 		c := srv.newConn(rwc)
-		srv.ActiveConn.Store(c, true)
+		srv.activeConn.Store(c, true)
 		go c.serve()
 	}
 }
@@ -114,10 +114,22 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 }
 
 func (srv *Server) Shutdown() {
-	srv.ActiveConn.Range(func(key, value interface{}) bool {
+	srv.activeConn.Range(func(key, value interface{}) bool {
 		key.(*Conn).Close()
 		return true
 	})
+}
+
+func (srv *Server) FindConn(id string) *Conn {
+	c1 := new(Conn)
+	srv.activeConn.Range(func(key, value interface{}) bool {
+		c := key.(*Conn)
+		if c.id == id {
+			c1 = c
+		}
+		return true
+	})
+	return c1
 }
 
 func (c *Conn) serve() {
@@ -142,7 +154,7 @@ func (c *Conn) ID() string {
 }
 
 func (c *Conn) SetID(id string) {
-	c.server.ActiveConn.Range(func(key, value interface{}) bool {
+	c.server.activeConn.Range(func(key, value interface{}) bool {
 		prev := key.(*Conn)
 		if prev.id == id {
 			prev.Close()
@@ -197,7 +209,7 @@ func (c *Conn) Write(buf []byte) (n int, err error) {
 func (c *Conn) Close() {
 	if !c.ShuttingDown() {
 		atomic.StoreInt32(&c.inShutdown, 1)
-		c.server.ActiveConn.Delete(c)
+		c.server.activeConn.Delete(c)
 		close(c.CloseNotifier)
 		c.rwc.Close()
 		c.server.AfterConnClose(c.id)
