@@ -120,7 +120,7 @@ func (srv *Server) Shutdown() {
 	})
 }
 
-func (srv *Server) FindConn(id string) *Conn {
+func (srv *Server) FindConn(id string) (*Conn, error) {
 	c1 := new(Conn)
 	srv.activeConn.Range(func(key, value interface{}) bool {
 		c := key.(*Conn)
@@ -130,7 +130,10 @@ func (srv *Server) FindConn(id string) *Conn {
 		}
 		return true
 	})
-	return c1
+	if c1.id == "" {
+		return nil, errors.New("设备离线")
+	}
+	return c1, nil
 }
 
 func (c *Conn) serve() {
