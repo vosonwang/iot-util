@@ -162,6 +162,8 @@ func (c *Conn) Send(data []byte) error {
 }
 
 func (c *Conn) Receive() ([]byte, error) {
+	c.Lock()
+	defer c.Unlock()
 	select {
 	case <-c.CloseNotifier:
 		return nil, errors.New("设备离线")
@@ -184,6 +186,8 @@ func (c *Conn) read() ([]byte, error) {
 }
 
 func (c *Conn) Write(buf []byte) (n int, err error) {
+	c.Lock()
+	defer c.Unlock()
 	c.rwc.SetWriteDeadline(time.Now().Add(c.server.Timeout))
 	return c.rwc.Write(buf)
 }
