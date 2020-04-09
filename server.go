@@ -59,6 +59,9 @@ type (
 
 		// 资源读写锁
 		sync.Mutex
+
+		// 用于用户存储一些键值
+		sync.Map
 	}
 )
 
