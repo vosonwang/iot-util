@@ -122,6 +122,7 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 		rwc:           rwc,
 		CloseNotifier: make(chan bool),
 		bridgeChan:    make(chan []byte),
+		writeSignal:   make(chan bool),
 	}
 }
 
