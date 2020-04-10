@@ -59,11 +59,14 @@ type (
 		// 用于和外界交换数据
 		bridgeChan chan []byte
 
-		// 资源读写锁
+		// 资源读写锁，仅限调用方使用
 		sync.Mutex
 
 		// 用于用户存储一些键值
 		sync.Map
+
+		// 用于控制写入的频率
+		writeSignal chan bool
 	}
 )
 
@@ -122,6 +125,23 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 	}
 }
 
+func (c *Conn) serve() {
+	for {
+		select {
+		case <-c.CloseNotifier:
+			return
+		default:
+			buf, err := c.read()
+			if err != nil {
+				log.Printf(`server: read from connection error: %v`, err)
+				c.Close()
+				return
+			}
+			c.server.Handler(c, buf)
+		}
+	}
+}
+
 func (srv *Server) Shutdown() {
 	srv.activeConn.Range(func(key, value interface{}) bool {
 		key.(*Conn).Close()
@@ -143,23 +163,6 @@ func (srv *Server) FindConn(id string) (*Conn, error) {
 		return nil, errors.New("设备离线")
 	}
 	return c1, nil
-}
-
-func (c *Conn) serve() {
-	for {
-		select {
-		case <-c.CloseNotifier:
-			return
-		default:
-			buf, err := c.read()
-			if err != nil {
-				log.Printf(`server: read from connection error: %v`, err)
-				c.Close()
-				return
-			}
-			c.server.Handler(c, buf)
-		}
-	}
 }
 
 func (c *Conn) ID() string {
@@ -189,8 +192,6 @@ func (c *Conn) Send(data []byte) error {
 }
 
 func (c *Conn) Receive() ([]byte, error) {
-	c.Lock()
-	defer c.Unlock()
 	select {
 	case <-c.CloseNotifier:
 		return nil, errors.New("设备离线")
@@ -218,15 +219,19 @@ func (c *Conn) read() ([]byte, error) {
 }
 
 func (c *Conn) Write(buf []byte) (n int, err error) {
-	c.Lock()
-	defer c.Unlock()
-	// 防止粘包
-	defer time.Sleep(1 * time.Second)
+	// 控制写入频率，防止粘包
+	c.writeSignal <- true
+
 	defer func() {
+		// 等待1秒之后才允许其他协程使用Write方法
+		// 功能和c.Lock相仿，但是c.Lock仅用于调用方使用
+		time.Sleep(1 * time.Second)
 		if c.server.debug {
 			log.Printf(`write: % x`, buf)
 		}
+		<-c.writeSignal
 	}()
+
 	c.rwc.SetWriteDeadline(time.Now().Add(c.server.Timeout))
 	return c.rwc.Write(buf)
 }
