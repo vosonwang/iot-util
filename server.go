@@ -138,7 +138,9 @@ func (c *Conn) serve() {
 				c.Close()
 				return
 			}
-			c.server.Handler(c, buf)
+			// 必须用协程，否则设备的响应会无法及时处理，导致请求超时
+			// 另外调用房可能会误用，导致阻塞，从而使接下来的读取失败，导致超时
+			go c.server.Handler(c, buf)
 		}
 	}
 }
