@@ -122,7 +122,7 @@ func (srv *Server) newConn(rwc net.Conn) *Conn {
 		rwc:           rwc,
 		CloseNotifier: make(chan bool),
 		bridgeChan:    make(chan []byte),
-		writeSignal:   make(chan bool, 1),
+		writeSignal:   make(chan bool, 1), // 必须要指定size，否则无法写入
 	}
 }
 
@@ -224,12 +224,12 @@ func (c *Conn) Write(buf []byte) (n int, err error) {
 	c.writeSignal <- true
 
 	defer func() {
-		// 等待1秒之后才允许其他协程使用Write方法
-		// 功能和c.Lock相仿，但是c.Lock仅用于调用方使用
-		time.Sleep(1 * time.Second)
 		if c.server.debug {
 			log.Printf(`write: % x`, buf)
 		}
+		// 等待1秒之后才允许其他协程使用Write方法
+		// 功能和c.Lock相仿，但是c.Lock仅用于调用方使用
+		time.Sleep(1 * time.Second)
 		<-c.writeSignal
 	}()
 
