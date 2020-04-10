@@ -157,7 +157,7 @@ func (c *Conn) serve() {
 				c.Close()
 				return
 			}
-			go c.server.Handler(c, buf)
+			c.server.Handler(c, buf)
 		}
 	}
 }
