@@ -34,6 +34,8 @@ type (
 		AfterConnClose func(id string)
 		activeConn     sync.Map
 		OnStart        func()
+		// 是否打印报文
+		debug bool
 	}
 
 	// A conn represents the server side of an tcp connection.
@@ -70,6 +72,10 @@ func NewServer() *Server {
 		MaxBytes: defaultMaxBytes,
 		Timeout:  defaultTimeout,
 	}
+}
+
+func (srv *Server) Debug(debug bool) {
+	srv.debug = debug
 }
 
 func (srv *Server) StartServer(address string) error {
@@ -147,7 +153,7 @@ func (c *Conn) serve() {
 		default:
 			buf, err := c.read()
 			if err != nil {
-				log.Printf(`iot_util: read from connection error %v`, err)
+				log.Printf(`server: read from connection error: %v`, err)
 				c.Close()
 				return
 			}
@@ -197,6 +203,11 @@ func (c *Conn) Receive() ([]byte, error) {
 
 func (c *Conn) read() ([]byte, error) {
 	buf := make([]byte, c.server.MaxBytes)
+	defer func() {
+		if c.server.debug {
+			log.Printf(`read: % x`, buf)
+		}
+	}()
 	c.rwc.SetReadDeadline(time.Now().Add(c.server.Timeout))
 	readLen, err := c.rwc.Read(buf)
 	if err != nil {
@@ -209,6 +220,11 @@ func (c *Conn) read() ([]byte, error) {
 func (c *Conn) Write(buf []byte) (n int, err error) {
 	c.Lock()
 	defer c.Unlock()
+	defer func() {
+		if c.server.debug {
+			log.Printf(`write: % x`, buf)
+		}
+	}()
 	// 防止粘包
 	defer time.Sleep(1 * time.Second)
 	c.rwc.SetWriteDeadline(time.Now().Add(c.server.Timeout))
