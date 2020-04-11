@@ -62,8 +62,11 @@ type (
 		// 资源读写锁，仅限调用方使用
 		sync.Mutex
 
-		// 用于用户存储一些键值
+		// 可供调用方存储一些键值
 		sync.Map
+
+		// 可供调用方执行一次性操作
+		sync.Once
 
 		// 用于控制写入的频率
 		writeSignal chan bool
